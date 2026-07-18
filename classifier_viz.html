@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Logistic Regression Classifier</title>
+  <style>
+    :root { color-scheme: light dark; --paper: #f8fafc; --ink: #162235; --muted: #56657a; --line: #cbd5e1; --panel: #ffffff; --class-0: #3575d3; --class-1: #e66b3d; }
+    @media (prefers-color-scheme: dark) { :root { --paper: #101722; --ink: #e8eef7; --muted: #adbacb; --line: #405066; --panel: #182231; --class-0: #79adff; --class-1: #ff9b72; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .lesson { width: min(1120px, 100%); margin: 0 auto; padding: 28px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 30px; align-items: center; }
+    .plot-area { min-width: 0; }
+    canvas { display: block; width: 100%; aspect-ratio: 1 / 1; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+    .side { padding: 4px 0; }
+    h1 { margin: 0 0 16px; font-size: clamp(1.55rem, 3vw, 2.25rem); line-height: 1.12; letter-spacing: -0.035em; font-weight: 500; }
+    h2 { margin: 28px 0 10px; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; color: var(--muted); }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .legend { display: grid; gap: 9px; }
+    .legend-item { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+    .swatch { width: 14px; height: 14px; border-radius: 50%; flex: 0 0 auto; }
+    .status { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+    .status.error { color: #b42318; }
+    @media (max-width: 720px) { .lesson { grid-template-columns: 1fr; padding: 18px; gap: 22px; } .side { order: -1; } h2 { margin-top: 18px; } }
+  </style>
+</head>
+<body>
+  <main class="lesson">
+    <section class="plot-area" aria-label="Classifier decision map">
+      <canvas id="plot" role="img" aria-label="A decision heatmap with training points overlaid.">Your browser does not support Canvas.</canvas>
+    </section>
+    <aside class="side">
+      <h1>Logistic Regression Classifier</h1>
+      <p>This model learns to separate two classes of data based on two input features. It draws a decision boundary — the line where its prediction flips from one class to the other.</p>
+      <h2>Classes</h2>
+      <div id="legend" class="legend" aria-label="Class legend"></div>
+      <h2>Key insight</h2>
+      <p>Notice how the boundary is a straight line — that's because logistic regression can only learn linear boundaries. Points near the boundary are where the model is least confident.</p>
+      <div id="status" class="status" aria-live="polite">Loading model data…</div>
+    </aside>
+  </main>
+  <script>
+    (() => {
+      const canvas = document.getElementById('plot');
+      const ctx = canvas.getContext('2d');
+      const legend = document.getElementById('legend');
+      const status = document.getElementById('status');
+      const css = getComputedStyle(document.documentElement);
+      const palette = [css.getPropertyValue('--class-0').trim(), css.getPropertyValue('--class-1').trim()];
+      let model;
+
+      function extent(values) { return [Math.min(...values), Math.max(...values)]; }
+      function labelsFor(classes) { return classes.map((value, index) => `Class ${value ?? index}`); }
+      function drawLegend(classes) {
+        legend.innerHTML = '';
+        labelsFor(classes).forEach((label, i) => {
+          const row = document.createElement('div'); row.className = 'legend-item';
+          const swatch = document.createElement('span'); swatch.className = 'swatch'; swatch.style.background = palette[i % palette.length];
+          row.append(swatch, document.createTextNode(label)); legend.appendChild(row);
+        });
+      }
+      function render() {
+        const grid = model.decision_grid, points = model.data_points;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const width = Math.max(300, Math.round(canvas.clientWidth)), height = width;
+        canvas.width = width * dpr; canvas.height = height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const pad = { left: 56, right: 18, top: 18, bottom: 50 }, pw = width - pad.left - pad.right, ph = height - pad.top - pad.bottom;
+        const [xmin, xmax] = extent(grid.x.concat(points.x)), [ymin, ymax] = extent(grid.y.concat(points.y));
+        const xPad = (xmax - xmin) * 0.04, yPad = (ymax - ymin) * 0.04;
+        const X0 = xmin - xPad, X1 = xmax + xPad, Y0 = ymin - yPad, Y1 = ymax + yPad;
+        const px = x => pad.left + (x - X0) / (X1 - X0) * pw, py = y => pad.top + (Y1 - y) / (Y1 - Y0) * ph;
+        ctx.fillStyle = css.getPropertyValue('--panel').trim(); ctx.fillRect(0, 0, width, height);
+        const uniqueX = [...new Set(grid.x)].sort((a, b) => a - b), uniqueY = [...new Set(grid.y)].sort((a, b) => a - b);
+        const cellW = pw / uniqueX.length + 0.6, cellH = ph / uniqueY.length + 0.6;
+        grid.x.forEach((x, i) => { ctx.fillStyle = palette[grid.prediction[i] % palette.length]; ctx.globalAlpha = 0.23; ctx.fillRect(px(x) - cellW / 2, py(grid.y[i]) - cellH / 2, cellW, cellH); });
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = css.getPropertyValue('--line').trim(); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + ph); ctx.lineTo(pad.left + pw, pad.top + ph); ctx.stroke();
+        ctx.fillStyle = css.getPropertyValue('--muted').trim(); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+        for (let i = 0; i <= 4; i++) { const x = X0 + i / 4 * (X1 - X0), xx = px(x); ctx.beginPath(); ctx.moveTo(xx, pad.top + ph); ctx.lineTo(xx, pad.top + ph + 4); ctx.stroke(); ctx.fillText(x.toFixed(1), xx, height - 17); }
+        ctx.textAlign = 'right';
+        for (let i = 0; i <= 4; i++) { const y = Y0 + i / 4 * (Y1 - Y0), yy = py(y); ctx.beginPath(); ctx.moveTo(pad.left - 4, yy); ctx.lineTo(pad.left, yy); ctx.stroke(); ctx.fillText(y.toFixed(1), pad.left - 8, yy + 4); }
+        ctx.textAlign = 'center'; ctx.fillText(model.feature_names?.[0] || 'Feature 1', pad.left + pw / 2, height - 2);
+        ctx.save(); ctx.translate(16, pad.top + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(model.feature_names?.[1] || 'Feature 2', 0, 0); ctx.restore();
+        points.x.forEach((x, i) => { const color = palette[points.labels[i] % palette.length]; ctx.beginPath(); ctx.arc(px(x), py(points.y[i]), 4.4, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); ctx.strokeStyle = css.getPropertyValue('--panel').trim(); ctx.lineWidth = 1.5; ctx.stroke(); });
+      }
+      fetch('./model_export.json')
+        .then(response => { if (!response.ok) throw new Error(`HTTP ${response.status}`); return response.json(); })
+        .then(data => { if (!data.decision_grid || !data.data_points) throw new Error('Expected decision_grid and data_points arrays.'); model = data; drawLegend(data.classes || [0, 1]); render(); status.textContent = `${data.data_points.x.length} training points · decision regions shown by color`; })
+        .catch(error => { status.classList.add('error'); status.textContent = `Could not load model_export.json: ${error.message}`; });
+      window.addEventListener('resize', () => { if (model) render(); });
+    })();
+  </script>
+</body>
+</html>

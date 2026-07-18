@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overfitting vs Underfitting</title>
+  <style>
+    :root { color-scheme: light dark; --paper: #f8fafc; --ink: #162235; --muted: #56657a; --line: #cbd5e1; --panel: #ffffff; --data: #3575d3; --fit: #e66b3d; }
+    @media (prefers-color-scheme: dark) { :root { --paper: #101722; --ink: #e8eef7; --muted: #adbacb; --line: #405066; --panel: #182231; --data: #79adff; --fit: #ff9b72; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: var(--paper); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .lesson { width: min(1120px, 100%); margin: 0 auto; padding: 28px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 30px; align-items: center; }
+    .plot-area { min-width: 0; }
+    canvas { display: block; width: 100%; aspect-ratio: 1.18 / 1; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; }
+    .control { margin-top: 14px; color: var(--ink); font-weight: 500; }
+    output { float: right; font-variant-numeric: tabular-nums; }
+    input { display: block; width: 100%; margin-top: 8px; accent-color: var(--fit); }
+    h1 { margin: 0 0 16px; font-size: clamp(1.55rem, 3vw, 2.25rem); line-height: 1.12; letter-spacing: -0.035em; font-weight: 500; }
+    h2 { margin: 28px 0 10px; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 500; color: var(--muted); }
+    p { margin: 0; color: var(--muted); line-height: 1.6; }
+    .legend { display: grid; gap: 9px; }
+    .legend-item { display: flex; align-items: center; gap: 10px; color: var(--ink); }
+    .dot, .stroke { width: 18px; flex: 0 0 auto; }
+    .dot { height: 18px; border-radius: 50%; background: var(--data); border: 3px solid var(--panel); box-shadow: 0 0 0 1px var(--data); }
+    .stroke { height: 0; border-top: 3px solid var(--fit); }
+    @media (max-width: 720px) { .lesson { grid-template-columns: 1fr; padding: 18px; gap: 22px; } .side { order: -1; } h2 { margin-top: 18px; } }
+  </style>
+</head>
+<body>
+  <main class="lesson">
+    <section class="plot-area" aria-label="Polynomial model fit">
+      <canvas id="plot" role="img" aria-label="Noisy sine data with a fitted polynomial curve.">Your browser does not support Canvas.</canvas>
+      <label class="control" for="complexity">Model complexity <output id="degree-value">1</output><input id="complexity" type="range" min="1" max="15" step="1" value="1"></label>
+    </section>
+    <aside class="side">
+      <h1>Overfitting vs Underfitting</h1>
+      <p>Low complexity underfits: it misses the pattern in the data. High complexity overfits: it chases the noise instead of learning the broader trend.</p>
+      <h2>What you’re seeing</h2>
+      <div class="legend"><div class="legend-item"><span class="dot"></span> Noisy data</div><div class="legend-item"><span class="stroke"></span> Polynomial fit</div></div>
+      <h2>Key insight</h2>
+      <p>Watch the curve go from a straight line to a wildly wiggling one as you increase the slider.</p>
+    </aside>
+  </main>
+  <script>
+    (() => {
+      const data = [[-3.10,-0.16],[-2.92,-0.44],[-2.74,-0.25],[-2.56,-0.76],[-2.38,-0.85],[-2.20,-0.67],[-2.02,-1.09],[-1.84,-1.17],[-1.66,-0.83],[-1.48,-1.10],[-1.30,-0.92],[-1.12,-1.02],[-0.94,-0.67],[-0.76,-0.82],[-0.58,-0.48],[-0.40,-0.52],[-0.22,-0.03],[-0.04,-0.17],[0.14,0.25],[0.32,0.47],[0.50,0.32],[0.68,0.75],[0.86,0.58],[1.04,1.00],[1.22,0.82],[1.40,1.16],[1.58,0.88],[1.76,1.23],[1.94,0.98],[2.12,0.96],[2.30,0.94],[2.48,0.77],[2.66,0.68],[2.84,0.48],[3.02,0.20]];
+      const canvas = document.getElementById('plot'), ctx = canvas.getContext('2d');
+      const slider = document.getElementById('complexity'), value = document.getElementById('degree-value');
+      const xRange = [-3.3, 3.3], yRange = [-1.65, 1.65];
+      const css = getComputedStyle(document.documentElement);
+      function solve(matrix, vector) {
+        const n = vector.length;
+        for (let col = 0; col < n; col++) {
+          let pivot = col;
+          for (let row = col + 1; row < n; row++) if (Math.abs(matrix[row][col]) > Math.abs(matrix[pivot][col])) pivot = row;
+          [matrix[col], matrix[pivot]] = [matrix[pivot], matrix[col]]; [vector[col], vector[pivot]] = [vector[pivot], vector[col]];
+          const divisor = matrix[col][col] || 1e-12;
+          for (let j = col; j < n; j++) matrix[col][j] /= divisor;
+          vector[col] /= divisor;
+          for (let row = 0; row < n; row++) if (row !== col) { const factor = matrix[row][col]; for (let j = col; j < n; j++) matrix[row][j] -= factor * matrix[col][j]; vector[row] -= factor * vector[col]; }
+        }
+        return vector;
+      }
+      function coefficients(degree) {
+        const size = degree + 1, a = Array.from({ length: size }, () => Array(size).fill(0)), b = Array(size).fill(0);
+        data.forEach(([x, y]) => { const powers = [1]; for (let i = 1; i < 2 * size; i++) powers.push(powers[i - 1] * (x / Math.PI)); for (let r = 0; r < size; r++) { b[r] += y * powers[r]; for (let c = 0; c < size; c++) a[r][c] += powers[r + c]; } });
+        for (let i = 0; i < size; i++) a[i][i] += 1e-8;
+        return solve(a, b);
+      }
+      function draw() {
+        const degree = +slider.value, coeffs = coefficients(degree), dpr = Math.min(devicePixelRatio || 1, 2);
+        const width = Math.max(320, Math.round(canvas.clientWidth)), height = Math.round(width / 1.18);
+        canvas.width = width * dpr; canvas.height = height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const pad = { left: 54, right: 18, top: 18, bottom: 42 }, pw = width - pad.left - pad.right, ph = height - pad.top - pad.bottom;
+        const px = x => pad.left + (x - xRange[0]) / (xRange[1] - xRange[0]) * pw, py = y => pad.top + (yRange[1] - y) / (yRange[1] - yRange[0]) * ph;
+        const color = name => css.getPropertyValue(name).trim();
+        ctx.fillStyle = color('--panel'); ctx.fillRect(0, 0, width, height);
+        ctx.strokeStyle = color('--line'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pad.left, py(0)); ctx.lineTo(pad.left + pw, py(0)); ctx.moveTo(px(0), pad.top); ctx.lineTo(px(0), pad.top + ph); ctx.stroke();
+        ctx.fillStyle = color('--muted'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center';
+        for (let x = -3; x <= 3; x++) { ctx.fillText(x, px(x), height - 15); }
+        ctx.textAlign = 'right'; for (let y = -1; y <= 1; y++) { ctx.fillText(y, pad.left - 8, py(y) + 4); }
+        ctx.strokeStyle = color('--fit'); ctx.lineWidth = 2.8; ctx.lineJoin = 'round'; ctx.beginPath();
+        for (let i = 0; i <= 500; i++) { const x = xRange[0] + i / 500 * (xRange[1] - xRange[0]); let y = 0, power = 1; coeffs.forEach(c => { y += c * power; power *= x / Math.PI; }); const yy = Math.max(yRange[0] - 0.25, Math.min(yRange[1] + 0.25, y)); i ? ctx.lineTo(px(x), py(yy)) : ctx.moveTo(px(x), py(yy)); }
+        ctx.stroke();
+        data.forEach(([x, y]) => { ctx.beginPath(); ctx.arc(px(x), py(y), 4.4, 0, Math.PI * 2); ctx.fillStyle = color('--data'); ctx.fill(); ctx.strokeStyle = color('--panel'); ctx.lineWidth = 1.5; ctx.stroke(); });
+      }
+      slider.addEventListener('input', () => { value.value = slider.value; draw(); });
+      window.addEventListener('resize', draw); draw();
+    })();
+  </script>
+</body>
+</html>

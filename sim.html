@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gradient Descent Simulator</title>
+  <style>
+    :root { color-scheme: light dark; --background: #ffffff; --foreground: #18212f; --muted: #e8edf3; --muted-foreground: #546274; --border: #cbd5e1; --primary: #2166d1; --secondary: #e35924; }
+    @media (prefers-color-scheme: dark) { :root { --background: #161b22; --foreground: #e6edf3; --muted: #283241; --muted-foreground: #a5b2c3; --border: #445264; --primary: #7db2ff; --secondary: #ff9d6b; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--background); color: var(--foreground); font: 16px/1.4 system-ui, sans-serif; }
+    main { width: min(900px, 100%); margin: 0 auto; padding: 18px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 16px 24px; }
+    label { flex: 1 1 300px; font-weight: 500; }
+    output { float: right; font-variant-numeric: tabular-nums; }
+    input { display: block; width: 100%; margin-top: 7px; accent-color: var(--primary); }
+    .status { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 14px 0 10px; color: var(--muted-foreground); }
+    .status strong { color: var(--foreground); font-weight: 500; }
+    canvas { display: block; width: 100%; height: auto; aspect-ratio: 1.45 / 1; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="controls" aria-label="Gradient descent controls">
+      <label for="learning-rate">Learning rate: <output id="learning-rate-value">0.080</output><input id="learning-rate" type="range" min="0.001" max="1" step="0.001" value="0.080"></label>
+      <label for="starting-position">Starting position: <output id="starting-position-value">2.00</output><input id="starting-position" type="range" min="-5" max="5" step="0.01" value="2"></label>
+    </div>
+    <div class="status" aria-live="polite"><span>Iteration <strong id="iteration">0</strong></span><span>Position <strong id="position">(2.00, 2.00)</strong></span><span>z <strong id="height">4.000</strong></span></div>
+    <canvas id="descent-canvas" role="img" aria-label="Contour map of the objective function with an animated gradient descent path."></canvas>
+  </main>
+  <script>
+    (() => {
+      const canvas = document.getElementById('descent-canvas'), ctx = canvas.getContext('2d');
+      const rateInput = document.getElementById('learning-rate'), startInput = document.getElementById('starting-position');
+      const rateValue = document.getElementById('learning-rate-value'), startValue = document.getElementById('starting-position-value');
+      const iterationEl = document.getElementById('iteration'), positionEl = document.getElementById('position'), heightEl = document.getElementById('height');
+      const bounds = { xMin: -2.35, xMax: 2.35, yMin: -3.1, yMax: 3.1 };
+      const state = { point: [2, 2], path: [[2, 2]], iteration: 0 };
+      const f = (x, y) => x ** 4 - 2 * x ** 2 + 0.5 * x * y + y ** 2;
+      const grad = (x, y) => [4 * x ** 3 - 4 * x + 0.5 * y, 0.5 * x + 2 * y];
+      function updateText() { const [x, y] = state.point; rateValue.value = (+rateInput.value).toFixed(3); startValue.value = (+startInput.value).toFixed(2); iterationEl.textContent = state.iteration; positionEl.textContent = `(${x.toFixed(2)}, ${y.toFixed(2)})`; heightEl.textContent = f(x, y).toFixed(3); }
+      function reset() { const v = +startInput.value; state.point = [v, v]; state.path = [state.point.slice()]; state.iteration = 0; updateText(); }
+      function step() { const [x, y] = state.point, [gx, gy] = grad(x, y), next = [x - (+rateInput.value) * gx, y - (+rateInput.value) * gy]; if (!Number.isFinite(next[0]) || !Number.isFinite(next[1]) || Math.abs(next[0]) > 50 || Math.abs(next[1]) > 50) { reset(); return; } state.point = next; state.path.push(next.slice()); if (state.path.length > 160) state.path.shift(); state.iteration++; updateText(); }
+      function colour(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+      function render() {
+        const dpr = Math.min(devicePixelRatio || 1, 2), width = Math.max(320, Math.round(canvas.clientWidth)), height = Math.round(width / 1.45);
+        if (canvas.width !== width * dpr || canvas.height !== height * dpr) { canvas.width = width * dpr; canvas.height = height * dpr; }
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, width, height);
+        const pad = { l: 52, r: 16, t: 16, b: 38 }, pw = width - pad.l - pad.r, ph = height - pad.t - pad.b;
+        const sx = x => pad.l + (x - bounds.xMin) / (bounds.xMax - bounds.xMin) * pw, sy = y => pad.t + (bounds.yMax - y) / (bounds.yMax - bounds.yMin) * ph;
+        const grid = 90, values = []; let min = Infinity, max = -Infinity;
+        for (let row = 0; row <= grid; row++) { values[row] = []; for (let col = 0; col <= grid; col++) { const value = f(bounds.xMin + col / grid * (bounds.xMax - bounds.xMin), bounds.yMax - row / grid * (bounds.yMax - bounds.yMin)); values[row][col] = value; min = Math.min(min, value); max = Math.max(max, value); } }
+        const iw = Math.ceil(pw * dpr), ih = Math.ceil(ph * dpr), image = ctx.createImageData(iw, ih);
+        for (let py = 0; py < ih; py++) for (let px = 0; px < iw; px++) { const value = f(bounds.xMin + px / iw * (bounds.xMax - bounds.xMin), bounds.yMax - py / ih * (bounds.yMax - bounds.yMin)); const t = Math.min(1, Math.max(0, (value + 1.2) / 12)); const i = (py * iw + px) * 4; image.data[i] = 80 + 110 * t; image.data[i + 1] = 130 + 70 * t; image.data[i + 2] = 210 - 80 * t; image.data[i + 3] = 80; }
+        ctx.putImageData(image, pad.l * dpr, pad.t * dpr);
+        ctx.strokeStyle = colour('--border'); ctx.lineWidth = 1; const levels = [-1.15, -1, -0.7, -0.2, 0.5, 1.5, 3, 6, 10];
+        levels.forEach(level => { ctx.beginPath(); for (let row = 0; row < grid; row++) for (let col = 0; col < grid; col++) { const a = values[row][col] - level, b = values[row][col + 1] - level, d = values[row + 1][col] - level; if (a * b <= 0) { const x = pad.l + (col + (a / (a - b))) / grid * pw, y = pad.t + row / grid * ph; ctx.moveTo(x, y); ctx.lineTo(x + 0.5, y + 0.5); } if (a * d <= 0) { const x = pad.l + col / grid * pw, y = pad.t + (row + (a / (a - d))) / grid * ph; ctx.moveTo(x, y); ctx.lineTo(x + 0.5, y + 0.5); } } ctx.stroke(); });
+        ctx.strokeStyle = colour('--muted-foreground'); ctx.beginPath(); ctx.moveTo(sx(0), pad.t); ctx.lineTo(sx(0), pad.t + ph); ctx.moveTo(pad.l, sy(0)); ctx.lineTo(pad.l + pw, sy(0)); ctx.stroke();
+        ctx.fillStyle = colour('--muted-foreground'); ctx.font = '12px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('x', pad.l + pw / 2, height - 10); ctx.save(); ctx.translate(14, pad.t + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('y', 0, 0); ctx.restore();
+        ctx.strokeStyle = colour('--primary'); ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.beginPath(); state.path.forEach(([x, y], i) => i ? ctx.lineTo(sx(x), sy(y)) : ctx.moveTo(sx(x), sy(y))); ctx.stroke();
+        const [x, y] = state.point; ctx.fillStyle = colour('--secondary'); ctx.beginPath(); ctx.arc(sx(x), sy(y), 6, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = colour('--background'); ctx.lineWidth = 2; ctx.stroke();
+        requestAnimationFrame(render);
+      }
+      rateInput.addEventListener('input', updateText); startInput.addEventListener('input', reset); setInterval(step, 140); updateText(); requestAnimationFrame(render);
+    })();
+  </script>
+</body>
+</html>
